@@ -752,7 +752,7 @@
       "source_bitrate": "Datei:",
       "buffer_seconds": "Puffer: {{seconds}}s",
       "vo": "VO:",
-      "dropped_frames": "Dropped: {{count}} frames",
+      "dropped_frames": "Verworf: {{count}} Frames",
       "loading": "Lued …"
     },
     "mpv_player_title": "MPV-Player",
