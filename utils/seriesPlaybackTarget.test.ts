@@ -11,6 +11,7 @@ const episode = (
   Id: id,
   ParentIndexNumber: season,
   UserData: {
+    Key: id,
     Played: played,
     PlaybackPositionTicks: playbackPositionTicks,
   },

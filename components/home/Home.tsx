@@ -5,11 +5,10 @@ import type {
   BaseItemKind,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import {
-  getItemsApi,
-  getSuggestionsApi,
-  getTvShowsApi,
-  getUserLibraryApi,
-  getUserViewsApi,
+  getLibraryApi,
+  getShowApi,
+  getSuggestionApi,
+  getUserViewApi,
 } from "@jellyfin/sdk/lib/utils/api";
 import { type QueryFunction, useQuery } from "@tanstack/react-query";
 import { useNavigation, useSegments } from "expo-router";
@@ -187,7 +186,7 @@ const HomeMobile = () => {
         return null;
       }
 
-      const response = await getUserViewsApi(api).getUserViews({
+      const response = await getUserViewApi(api).getUserViews({
         userId: user.Id,
       });
 
@@ -242,7 +241,7 @@ const HomeMobile = () => {
         // For Series we sort by DateLastContentAdded so shows bubble up when
         // a new episode is added (series cards for new episodes, matching how
         // Jellyfin's "Latest" row worked pre-12.0). Movies use DateCreated.
-        const response = await getItemsApi(api).getItems({
+        const response = await getLibraryApi(api).getItems({
           userId: user?.Id,
           parentId,
           includeItemTypes,
@@ -316,14 +315,14 @@ const HomeMobile = () => {
             queryFn: async ({ pageParam = 0 }) => {
               // Fetch both in parallel
               const [resumeResponse, nextUpResponse] = await Promise.all([
-                getItemsApi(api).getResumeItems({
+                getLibraryApi(api).getResumeItems({
                   userId: user.Id,
                   enableImageTypes: ["Primary", "Backdrop", "Thumb"],
                   includeItemTypes: ["Movie", "Episode"],
                   startIndex: 0,
                   limit: 20,
                 }),
-                getTvShowsApi(api).getNextUp({
+                getShowApi(api).getNextUp({
                   userId: user?.Id,
                   startIndex: 0,
                   limit: 20,
@@ -355,7 +354,7 @@ const HomeMobile = () => {
             queryKey: ["home", "resumeItems"],
             queryFn: async ({ pageParam = 0 }) =>
               (
-                await getItemsApi(api).getResumeItems({
+                await getLibraryApi(api).getResumeItems({
                   userId: user.Id,
                   enableImageTypes: ["Primary", "Backdrop", "Thumb"],
                   includeItemTypes: ["Movie", "Episode"],
@@ -373,7 +372,7 @@ const HomeMobile = () => {
             queryKey: ["home", "nextUp-all"],
             queryFn: async ({ pageParam = 0 }) =>
               (
-                await getTvShowsApi(api).getNextUp({
+                await getShowApi(api).getNextUp({
                   userId: user?.Id,
                   startIndex: pageParam,
                   limit: 10,
@@ -399,7 +398,7 @@ const HomeMobile = () => {
               queryKey: ["home", "suggestedMovies", user?.Id],
               queryFn: async ({ pageParam = 0 }: { pageParam?: number }) =>
                 (
-                  await getSuggestionsApi(api).getSuggestions({
+                  await getSuggestionApi(api).getSuggestions({
                     userId: user?.Id,
                     startIndex: pageParam,
                     limit: 10,
@@ -437,7 +436,7 @@ const HomeMobile = () => {
         queryKey: ["home", "custom", String(index), section.title ?? null],
         queryFn: async ({ pageParam = 0 }) => {
           if (section.items) {
-            const response = await getItemsApi(api).getItems({
+            const response = await getLibraryApi(api).getItems({
               userId: user?.Id,
               startIndex: pageParam,
               limit: section.items?.limit || pageSize,
@@ -451,7 +450,7 @@ const HomeMobile = () => {
             return response.data.Items || [];
           }
           if (section.nextUp) {
-            const response = await getTvShowsApi(api).getNextUp({
+            const response = await getShowApi(api).getNextUp({
               userId: user?.Id,
               startIndex: pageParam,
               limit: section.nextUp?.limit || pageSize,
@@ -465,7 +464,7 @@ const HomeMobile = () => {
             // getLatestMedia doesn't support startIndex, so we fetch all and slice client-side
             const allData =
               (
-                await getUserLibraryApi(api).getLatestMedia({
+                await getLibraryApi(api).getLatestMedia({
                   userId: user?.Id,
                   includeItemTypes: section.latest?.includeItemTypes,
                   limit: section.latest?.limit || 10,
@@ -478,7 +477,7 @@ const HomeMobile = () => {
             return allData.slice(pageParam, pageParam + pageSize);
           }
           if (section.custom) {
-            const response = await api.get<BaseItemDtoQueryResult>(
+            const response = await api.pluginGet<BaseItemDtoQueryResult>(
               section.custom.endpoint,
               {
                 params: {

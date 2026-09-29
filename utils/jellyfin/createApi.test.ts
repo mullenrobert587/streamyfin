@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { Jellyfin } from "@jellyfin/sdk";
+import { AUTHORIZATION_HEADER } from "@jellyfin/sdk/lib/constants";
+import type { AuthenticationResult } from "@jellyfin/sdk/lib/generated-client/models";
+import { getAuthenticationApi } from "@jellyfin/sdk/lib/utils/api/authentication-api";
+import { getSessionApi } from "@jellyfin/sdk/lib/utils/api/session-api";
 import { getSystemApi } from "@jellyfin/sdk/lib/utils/api/system-api";
+import { getUserApi } from "@jellyfin/sdk/lib/utils/api/user-api";
 import axios, {
   type AxiosInstance,
   type InternalAxiosRequestConfig,
 } from "axios";
+import MockAdapter from "axios-mock-adapter";
 import {
   setJellyfinHeaders,
   stubCustomHeaders,
@@ -12,7 +18,9 @@ import {
 
 stubCustomHeaders();
 
-const { createApiWithCustomHeaders } = await import("./createApi");
+const { createApiWithCustomHeaders, createAuthenticatedApi } = await import(
+  "./createApi"
+);
 
 const SERVER = "https://jellyfin.example";
 
@@ -28,6 +36,164 @@ const jellyfin = () =>
     clientInfo: { name: "streamyfin-tests", version: "0.0.0" },
     deviceInfo: { name: "test-device", id: "device-1" },
   });
+
+describe("SDK authentication transport", () => {
+  const authentication: AuthenticationResult = {
+    AccessToken: "new-token",
+    User: { Id: "user-1", Name: "Alex" },
+  };
+
+  test("password authentication uses the SDK payload, proxy headers and a fresh published client", async () => {
+    setJellyfinHeaders({ "CF-Access-Client-Secret": "proxy-secret" }, SERVER);
+    const sdk = jellyfin();
+    const activeApi = createApiWithCustomHeaders(sdk, SERVER, "old-token");
+    const loginApi = createApiWithCustomHeaders(sdk, SERVER);
+    const transport = new MockAdapter(loginApi.axiosInstance, {
+      onNoMatch: "throwException",
+    });
+    transport
+      .onPost(`${SERVER}/Users/AuthenticateByName`, {
+        Username: "Alex",
+        Pw: "password",
+      })
+      .reply(200, authentication);
+
+    const response = await getAuthenticationApi(
+      loginApi,
+    ).authenticateUserByName({
+      authenticateUserByName: { Username: "Alex", Pw: "password" },
+    });
+    const published = createAuthenticatedApi(sdk, SERVER, response.data);
+
+    // SDK 1.0 mutates its input, but an isolated login cannot change the
+    // currently published session or its unauthorized-response interceptor.
+    expect(loginApi.accessToken).toBe("new-token");
+    expect(activeApi.accessToken).toBe("old-token");
+    expect(published.api).not.toBe(loginApi);
+    expect(published.api.axiosInstance).not.toBe(loginApi.axiosInstance);
+    expect(published.api.accessToken).toBe("new-token");
+    expect(published.userId).toBe("user-1");
+
+    const request = transport.history.post[0];
+    expect(request.headers?.["CF-Access-Client-Secret"]).toBe("proxy-secret");
+    expect(request.headers?.[AUTHORIZATION_HEADER]).toContain(
+      'Client="streamyfin-tests"',
+    );
+    expect(request.headers?.[AUTHORIZATION_HEADER]).toContain(
+      'DeviceId="device-1"',
+    );
+    expect(request.headers?.[AUTHORIZATION_HEADER]).not.toContain(
+      'Token="old-token"',
+    );
+
+    const sent = captureRequests(published.api.axiosInstance);
+    await getUserApi(published.api).getCurrentUser();
+    expect(sent[0].url).toBe(`${SERVER}/Users/Me`);
+    expect(sent[0].headers.get(AUTHORIZATION_HEADER)).toContain(
+      'Token="new-token"',
+    );
+    expect(sent[0].headers.get("CF-Access-Client-Secret")).toBe("proxy-secret");
+  });
+
+  test("Quick Connect uses SDK routes, encodes the secret, and updates only its login client", async () => {
+    setJellyfinHeaders({ "CF-Access-Client-Id": "proxy-id" }, SERVER);
+    const api = createApiWithCustomHeaders(jellyfin(), SERVER);
+    const transport = new MockAdapter(api.axiosInstance, {
+      onNoMatch: "throwException",
+    });
+    const secret = "secret+/=&";
+    transport.onPost(`${SERVER}/QuickConnect/Initiate`).reply(200, {
+      Code: "123456",
+      Secret: secret,
+    });
+    transport
+      .onGet(`${SERVER}/QuickConnect/Connect?secret=secret%2B%2F%3D%26`)
+      .reply(200, {
+        Authenticated: true,
+      });
+    transport
+      .onPost(`${SERVER}/Users/AuthenticateWithQuickConnect`, {
+        Secret: secret,
+      })
+      .reply(200, authentication);
+
+    const initiated = await getAuthenticationApi(api).initiateQuickConnect();
+    expect(initiated.data.Code).toBe("123456");
+    const state = await getAuthenticationApi(api).getQuickConnectState({
+      secret,
+    });
+    expect(state.data.Authenticated).toBe(true);
+    await getAuthenticationApi(api).authenticateWithQuickConnect({
+      quickConnectDto: { Secret: secret },
+    });
+
+    expect(api.accessToken).toBe("new-token");
+    for (const request of transport.history) {
+      expect(request.headers?.["CF-Access-Client-Id"]).toBe("proxy-id");
+      expect(request.headers?.[AUTHORIZATION_HEADER]).toContain(
+        'Device="test-device"',
+      );
+    }
+  });
+
+  test.each([401, 403])(
+    "failed authentication (%s) does not mutate the token",
+    async (status) => {
+      const api = createApiWithCustomHeaders(
+        jellyfin(),
+        SERVER,
+        "existing-token",
+      );
+      const transport = new MockAdapter(api.axiosInstance);
+      transport.onPost(`${SERVER}/Users/AuthenticateByName`).reply(status);
+
+      await expect(
+        getAuthenticationApi(api).authenticateUserByName({
+          authenticateUserByName: { Username: "Alex", Pw: "wrong" },
+        }),
+      ).rejects.toMatchObject({ response: { status } });
+
+      expect(api.accessToken).toBe("existing-token");
+    },
+  );
+
+  test.each([
+    {},
+    { AccessToken: "token" },
+    { AccessToken: "token", User: {} },
+    { AccessToken: "", User: { Id: "user-1" } },
+    { AccessToken: null, User: { Id: "user-1" } },
+  ] satisfies AuthenticationResult[])(
+    "does not publish an incomplete authentication response %j",
+    (result) => {
+      expect(() => createAuthenticatedApi(jellyfin(), SERVER, result)).toThrow(
+        "Jellyfin returned an incomplete authentication response",
+      );
+    },
+  );
+
+  test("session logout sends the current token and proxy headers, then clears the SDK token", async () => {
+    setJellyfinHeaders({ "CF-Access-Client-Id": "proxy-id" }, SERVER);
+    const api = createApiWithCustomHeaders(
+      jellyfin(),
+      SERVER,
+      "existing-token",
+    );
+    const transport = new MockAdapter(api.axiosInstance, {
+      onNoMatch: "throwException",
+    });
+    transport.onPost(`${SERVER}/Sessions/Logout`).reply(204);
+
+    await getSessionApi(api).reportSessionEnded();
+
+    const request = transport.history.post[0];
+    expect(request.headers?.[AUTHORIZATION_HEADER]).toContain(
+      'Token="existing-token"',
+    );
+    expect(request.headers?.["CF-Access-Client-Id"]).toBe("proxy-id");
+    expect(api.accessToken).toBe("");
+  });
+});
 
 /**
  * How many *live* request interceptors sit on an instance, which axios does not

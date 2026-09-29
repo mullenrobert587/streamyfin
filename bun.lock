@@ -12,7 +12,7 @@
         "@expo/ui": "57.0.20",
         "@expo/vector-icons": "^15.1.1",
         "@gorhom/bottom-sheet": "5.2.14",
-        "@jellyfin/sdk": "^0.13.0",
+        "@jellyfin/sdk": "1.0.0",
         "@react-native-community/netinfo": "12.0.1",
         "@react-navigation/native": "7.3.17",
         "@sentry/react-native": "^8.23.0",
@@ -429,7 +429,7 @@
 
     "@isaacs/ttlcache": ["@isaacs/ttlcache@1.4.1", "", {}, "sha512-RQgQ4uQ+pLbqXfOmieB91ejmLwvSgv9nLx6sT6sD83s7umBypgg+OIBOBbEUiJXrfpnp9j0mRhYYdzp9uqq3lA=="],
 
-    "@jellyfin/sdk": ["@jellyfin/sdk@0.13.0", "", { "peerDependencies": { "axios": "^1.12.0" } }, "sha512-oiBAOXH6s+dKdReSsYgNktBDzbxtg4JVWhEzIxZSxKcWMdSKmBtK41MhXRO7IWAC40DguKUm3nU/Z493qPAlWA=="],
+    "@jellyfin/sdk": ["@jellyfin/sdk@1.0.0", "", { "peerDependencies": { "axios": "^1.12.0" } }, "sha512-bu7EbMxEz+mH2N/v8Oj/dDCQQvTmEVTZBzKhYgwpKrL9l63LMZvjY2gvnU4imMi9389kzh0LQD75MzMtcoDJtA=="],
 
     "@jest/schemas": ["@jest/schemas@29.6.3", "", { "dependencies": { "@sinclair/typebox": "^0.27.8" } }, "sha512-mo5j5X+jIZmJQveBKeS/clAueipV7KgiX1vMgCxam1RNYiqE1w62n0/tJJnHtjW8ZHcQco5gY85jA3mi0L+nSA=="],
 
